@@ -10,43 +10,71 @@ import type { McpServerEntry } from './market-data.ts'
 export const name = 'dsh-mcpmanager'
 export const inject = ['slots', 'locale', 'sessions', 'workspaces']
 
-const panelStyle: React.CSSProperties = {
-  position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--dsw-alias-mask, rgba(15,15,30,0.45))',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-}
-const cardStyle: React.CSSProperties = {
-  width: 900, maxWidth: '94vw', height: '82vh', background: 'var(--dsw-alias-surface, #fff)',
-  borderRadius: 14, boxShadow: '0 24px 64px rgba(15,15,30,0.28)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
-}
-const headerStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 10, padding: '14px 18px',
-  borderBottom: '1px solid var(--dsw-alias-divider, #ececf2)', flexShrink: 0,
-}
-const closeStyle: React.CSSProperties = {
-  border: '1px solid var(--dsw-alias-border, #e0e0ea)', background: 'transparent', borderRadius: 8,
-  width: 28, height: 28, cursor: 'pointer', fontSize: 13, color: '#555',
-}
+/* ── inline styles (consistent with dsh-discovery / taishen-style panel) ── */
+
+/* 卡片操作按钮（小） */
 const btnStyle: React.CSSProperties = {
-  border: '1px solid var(--dsw-alias-border, #d5d5e2)', background: 'var(--dsw-alias-surface, #fff)',
-  borderRadius: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', color: '#333',
+  display: 'inline-flex', alignItems: 'center', gap: 6, height: 30, padding: '4px 12px', boxSizing: 'border-box',
+  background: 'var(--dsw-alias-button-elevated-fill, #2a2a4a)', border: '1px solid var(--dsw-alias-border-l2, #3a3a5a)',
+  borderRadius: 8, color: 'var(--dsw-alias-label-primary, #e0e0f0)', font: '500 12px system-ui',
+  cursor: 'pointer', transition: 'background-color .15s ease, color .15s ease',
 }
 const primaryBtn: React.CSSProperties = {
   ...btnStyle, background: '#4176e6', borderColor: '#4176e6', color: '#fff',
 }
-const dangerBtn: React.CSSProperties = { ...btnStyle, color: '#cf222e', borderColor: '#f0c0c4' }
+const dangerBtn: React.CSSProperties = { ...btnStyle, color: '#ff7b72', borderColor: '#6e2f33' }
+/* 侧边栏入口按钮（对齐 dsh-discovery） */
+const sidebarBtnStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  width: '100%', height: 38, padding: '8px 16px', boxSizing: 'border-box',
+  background: 'transparent', border: 'none', borderRadius: 12,
+  color: 'var(--dsw-alias-label-primary, #c6c8d4)', font: '500 14px system-ui',
+  lineHeight: '22px', cursor: 'pointer', textAlign: 'left', overflow: 'hidden',
+  transition: 'background-color .15s ease, color .15s ease, transform .15s ease',
+}
+const btnHoverStyle: React.CSSProperties = {
+  background: 'var(--dsw-alias-interactive-bg-hover, rgba(255,255,255,.06))',
+  color: 'var(--dsw-alias-label-primary, #e0e0f0)',
+}
+const railStyle: React.CSSProperties = {
+  ...sidebarBtnStyle, justifyContent: 'center', width: 36, height: 36, padding: 0, borderRadius: 8,
+  color: 'var(--dsw-alias-label-secondary, #9aa0b4)',
+}
+/* 面板骨架（对齐 dsh-discovery：mask + 居中大横版） */
+const maskStyle: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(8,8,16,.6)', zIndex: 1000 }
+const panelStyle: React.CSSProperties = {
+  position: 'absolute', inset: '28px 32px', maxWidth: 1180, margin: '0 auto',
+  background: 'var(--dsw-alias-bg-layer-1, #14141f)',
+  border: '1px solid var(--dsw-alias-border-l2, #2e2e4a)', borderRadius: 16,
+  boxShadow: '0 24px 64px rgba(0,0,0,.5)', display: 'flex', flexDirection: 'column', overflow: 'hidden',
+}
+const headerStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px',
+  color: 'var(--dsw-alias-label-primary, #e0e0f0)', font: '600 15px system-ui', flexShrink: 0,
+}
+const closeStyle: React.CSSProperties = {
+  marginLeft: 'auto', background: 'var(--dsw-alias-button-elevated-fill, #2a2a4a)',
+  color: 'var(--dsw-alias-label-primary, #e0e0f0)', border: '1px solid var(--dsw-alias-border-l2, #3a3a5a)',
+  borderRadius: 6, padding: '4px 12px', cursor: 'pointer', font: '12px system-ui',
+}
+/* 列表卡片 */
 const itemStyle: React.CSSProperties = {
-  border: '1px solid var(--dsw-alias-border, #e6e6ee)', borderRadius: 10, padding: '12px 14px', marginBottom: 8,
+  background: 'var(--dsw-alias-bg-layer-1, #1a1a2b)',
+  border: '1px solid var(--dsw-alias-border-l2, #2e2e4a)', borderRadius: 12, padding: '14px 16px', marginBottom: 10,
 }
-const emptyStyle: React.CSSProperties = { textAlign: 'center', color: 'var(--dsw-alias-label-secondary, #9aa0b4)', fontSize: 13, padding: 40 }
+const emptyStyle: React.CSSProperties = { textAlign: 'center', color: 'var(--dsw-alias-label-secondary, #9aa0b4)', fontSize: 13, padding: 48 }
 const formStyle: React.CSSProperties = {
-  border: '1px solid var(--dsw-alias-border, #e0e0ea)', borderRadius: 10, padding: 14, marginBottom: 12, background: 'var(--dsw-alias-surface-subtle, #fafbfc)',
+  background: 'var(--dsw-alias-bg-layer-1, #1a1a2b)',
+  border: '1px solid var(--dsw-alias-border-l2, #2e2e4a)', borderRadius: 12, padding: 14, marginBottom: 12,
 }
-const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, color: '#57606a', margin: '8px 0 3px' }
+const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, color: 'var(--dsw-alias-label-secondary, #9aa0b4)', margin: '8px 0 3px' }
 const inputStyle: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box', border: '1px solid var(--dsw-alias-border, #d5d5e2)', borderRadius: 7,
-  padding: '6px 9px', fontSize: 12, background: '#fff', color: '#1f2328',
+  width: '100%', boxSizing: 'border-box', border: '1px solid var(--dsw-alias-border-l2, #3a3a5a)', borderRadius: 7,
+  padding: '6px 9px', fontSize: 12, background: 'var(--dsw-alias-bg-layer-2, #1c1c2e)', color: 'var(--dsw-alias-label-primary, #e0e0f0)',
 }
-const metaStyle: React.CSSProperties = { fontSize: 11, color: 'var(--dsw-alias-label-secondary, #7c7c9c)', marginTop: 4 }
+const metaStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--dsw-alias-label-secondary, #7c7c9c)', marginTop: 6,
+}
 
 interface DiscoveryClientContext {
   workspaces: { list: { getSnapshot(): { items: Array<{ workspaceId: string; sessionIds: string[] }>; recentWorkspaceId?: string } }; startSession(): void; connectWorkspace(id: string): Promise<string> }
@@ -229,16 +257,16 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
   )
 
   return h('div', { style: { height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 } },
-    h('div', { style: { padding: '12px 16px', borderBottom: '1px solid var(--dsw-alias-divider, #ececf2)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
+    h('div', { style: { padding: '12px 16px', borderBottom: '1px solid var(--dsw-alias-border-l2, #2e2e4a)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
       h('button', { type: 'button', style: primaryBtn, onClick: startAdd }, `+ ${t('add')}`),
       h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary, #7c7c9c)' } }, t('restartNote')),
       h('span', { style: { flex: 1 } }),
       h('button', { type: 'button', style: btnStyle, onClick: askRestart }, t('restartWithLLM')),
     ),
-    notice !== '' && h('div', { style: { padding: '6px 16px', fontSize: 12, color: '#1a7f37', background: '#e8f7ee' } }, notice),
+    notice !== '' && h('div', { style: { padding: '6px 16px', fontSize: 12, color: '#3fb96f', background: 'rgba(26,127,55,.15)' } }, notice),
     error !== '' && h('div', { style: emptyStyle }, error),
     servers === null && !error && h('div', { style: emptyStyle }, t('loading')),
-    h('div', { style: { flex: 1, overflowY: 'auto', padding: 12 } },
+    h('div', { style: { flex: 1, overflowY: 'auto', padding: '16px 20px 24px' } },
       servers !== null && patchPath !== '' && h('div', { style: metaStyle }, `📄 ${patchPath}`),
       servers !== null && servers.length === 0 && h('div', { style: emptyStyle }, t('empty')),
       editing !== null && h('div', { style: formStyle },
@@ -268,9 +296,9 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
       ),
       servers !== null && servers.map((s) => h('div', { key: s.id, style: itemStyle },
         h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
-          h('span', { style: { fontSize: 13, fontWeight: 600, color: '#1f2328', fontFamily: 'monospace', opacity: s.enabled ? 1 : 0.45 } }, s.serverName),
-          h('span', { style: { fontSize: 10, padding: '1px 7px', borderRadius: 9, background: s.transport === 'stdio' ? '#eef2ff' : '#fef3c7', color: s.transport === 'stdio' ? '#4f46e5' : '#b45309' } }, s.transport),
-          h('span', { style: { fontSize: 10, padding: '1px 7px', borderRadius: 9, background: s.enabled ? '#e8f7ee' : '#f6f7f9', color: s.enabled ? '#1a7f37' : '#8b949e' } },
+          h('span', { style: { fontSize: 13, fontWeight: 600, color: 'var(--dsw-alias-label-primary, #e0e0f0)', fontFamily: 'monospace', opacity: s.enabled ? 1 : 0.45 } }, s.serverName),
+          h('span', { style: { fontSize: 10, padding: '1px 7px', borderRadius: 9, background: 'var(--dsw-alias-bg-layer-2, #2a2a4a)', color: s.transport === 'stdio' ? '#7aa2ff' : '#d8a75c', border: '1px solid var(--dsw-alias-border-l2, #3a3a5a)' } }, s.transport),
+          h('span', { style: { fontSize: 10, padding: '1px 7px', borderRadius: 9, background: s.enabled ? 'rgba(26,127,55,.15)' : 'rgba(255,255,255,.04)', color: s.enabled ? '#3fb96f' : '#8b949e' } },
             s.enabled ? t('enabled') : t('disabled')),
           h('span', { style: { flex: 1 } }),
           h('button', { type: 'button', style: s.enabled ? btnStyle : { ...btnStyle, background: '#4176e6', borderColor: '#4176e6', color: '#fff' }, onClick: () => toggleEnabled(s) },
@@ -279,7 +307,7 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
           h('button', { type: 'button', style: dangerBtn, onClick: () => remove(s) }, t('delete')),
         ),
         h('div', { style: metaStyle }, `id: ${s.id}`),
-        (s.command !== undefined || (s.args ?? []).length > 0) && h('div', { style: { fontSize: 11, color: '#57606a', marginTop: 3, fontFamily: 'monospace', opacity: s.enabled ? 1 : 0.5 } },
+        (s.command !== undefined || (s.args ?? []).length > 0) && h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary, #9aa0b4)', marginTop: 3, fontFamily: 'monospace', opacity: s.enabled ? 1 : 0.5 } },
           [s.command, ...(s.args ?? [])].filter(Boolean).join(' '),
         ),
         s.url !== undefined && h('div', { style: metaStyle }, `url: ${s.url}`),
@@ -304,6 +332,7 @@ export function apply(ctx: DiscoveryClientContext): void {
 
 function McpTrigger({ wide, t, ctx }: { wide: boolean; t: Translate; ctx: DiscoveryClientContext }) {
   const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const close = (): void => setOpen(false)
   const closeButton = useRef<HTMLButtonElement | null>(null)
 
@@ -315,22 +344,27 @@ function McpTrigger({ wide, t, ctx }: { wide: boolean; t: Translate; ctx: Discov
   }, [open])
   useEffect(() => { if (open) closeButton.current?.focus() }, [open])
 
-  const style: React.CSSProperties = wide
-    ? { display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', border: 'none', background: 'transparent', borderRadius: 8, cursor: 'pointer', color: 'inherit', fontSize: 13 }
-    : { width: 40, height: 40, border: 'none', background: 'transparent', cursor: 'pointer', color: 'inherit' }
+  const style = wide ? { ...sidebarBtnStyle, ...(hovered ? btnHoverStyle : null) } : railStyle
 
   return h('div', { style: { display: 'contents' } },
-    h('button', { type: 'button', style, title: t('nav'), 'aria-label': t('nav'), onClick: () => setOpen(true) },
+    h('button', {
+      type: 'button',
+      style,
+      title: t('nav'),
+      'aria-label': t('nav'),
+      onMouseEnter: () => setHovered(true),
+      onMouseLeave: () => setHovered(false),
+      onClick: () => setOpen(true),
+    },
       h(MCPIcon),
       wide && h('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, t('nav')),
     ),
-    open && h('div', { style: panelStyle, onClick: close },
-      h('div', { style: cardStyle, onClick: (e: React.MouseEvent) => e.stopPropagation() },
+    open && h('div', { style: maskStyle, onClick: close },
+      h('div', { style: panelStyle, onClick: (e: React.MouseEvent) => e.stopPropagation() },
         h('div', { style: headerStyle },
           h(MCPIcon),
-          h('span', { style: { fontWeight: 600, fontSize: 14 } }, t('nav')),
+          h('span', null, t('nav')),
           h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary, #7c7c9c)', fontWeight: 400 } }, t('subtitle')),
-          h('span', { style: { flex: 1 } }),
           h('button', { ref: closeButton, style: closeStyle, onClick: close, 'aria-label': 'Close' }, '✕'),
         ),
         h('div', { style: { flex: 1, overflowY: 'hidden', padding: '0 4px' } }, h(McpPanel, { t, ctx, onClose: close })),
