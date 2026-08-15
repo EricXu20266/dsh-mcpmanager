@@ -103,15 +103,23 @@ async function openSessionAndSend(ctx: DiscoveryClientContext, text: string): Pr
   return true
 }
 
-function buildRestartPrompt(): string {
+function buildConnectPrompt(): string {
   return [
-    '已修改 MCP server 配置，需要重启 DHS host 才能生效。',
-    '请评估是否可以安全重启（保存当前会话状态后执行），并告知用户重启结果。',
+    'MCP server 配置已保存并自动热重载。',
+    '请验证新会话中工具列表是否出现预期的 mcp__<serverName>__* 工具，并告知用户结果。',
   ].join('\n')
 }
 
+/** MCP 平面图标：插头字形（连接 server 协议），currentColor 跟随按钮文字色，与 dsh-discovery 图标体系一致。 */
 function MCPIcon(): ReactNode {
-  return h('span', { style: { width: 16, height: 16, borderRadius: 4, background: '#10b981', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#fff', flexShrink: 0 } }, 'M')
+  return h('svg', {
+    width: 16, height: 16, viewBox: '0 0 14 14', fill: 'none',
+    xmlns: 'http://www.w3.org/2000/svg', style: { flexShrink: 0 },
+  },
+    h('rect', { x: 3.5, y: 0.5, width: 2.4, height: 4.6, rx: 0.8, fill: 'currentColor' }),
+    h('rect', { x: 8.1, y: 0.5, width: 2.4, height: 4.6, rx: 0.8, fill: 'currentColor' }),
+    h('rect', { x: 2.2, y: 5, width: 9.6, height: 5.9, rx: 2, fill: 'currentColor' }),
+  )
 }
 
 interface FormState {
@@ -242,9 +250,9 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
       .catch(() => setError(t('saveFail')))
   }
 
-  const askRestart = (): void => {
+  const askVerify = (): void => {
     onClose()
-    void openSessionAndSend(ctx, buildRestartPrompt())
+    void openSessionAndSend(ctx, buildConnectPrompt())
   }
 
   const field = (key: keyof FormState, label: string): ReactNode => h('div', null,
@@ -259,9 +267,9 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
   return h('div', { style: { height: '100%', display: 'flex', flexDirection: 'column', minWidth: 0 } },
     h('div', { style: { padding: '12px 16px', borderBottom: '1px solid var(--dsw-alias-border-l2, #2e2e4a)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' } },
       h('button', { type: 'button', style: primaryBtn, onClick: startAdd }, `+ ${t('add')}`),
-      h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary, #7c7c9c)' } }, t('restartNote')),
+      h('span', { style: { fontSize: 11, color: 'var(--dsw-alias-label-secondary, #7c7c9c)' } }, t('hotReloadNote')),
       h('span', { style: { flex: 1 } }),
-      h('button', { type: 'button', style: btnStyle, onClick: askRestart }, t('restartWithLLM')),
+      h('button', { type: 'button', style: btnStyle, onClick: askVerify }, t('verifyWithLLM')),
     ),
     notice !== '' && h('div', { style: { padding: '6px 16px', fontSize: 12, color: '#3fb96f', background: 'rgba(26,127,55,.15)' } }, notice),
     error !== '' && h('div', { style: emptyStyle }, error),

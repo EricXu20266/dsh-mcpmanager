@@ -14,6 +14,13 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
+// js-yaml 5.x 运行时 API（类型声明缺失）：defineScalarTag 自定义 tag + Schema 构造
+import * as yamlRuntime from 'js-yaml'
+const { defineScalarTag, Schema, CORE_SCHEMA } = yamlRuntime as unknown as {
+  defineScalarTag: (name: string, opts: { resolve: (v: string) => string; identify: () => boolean }) => unknown
+  Schema: new (tags: unknown[]) => { tags: unknown[] }
+  CORE_SCHEMA: { tags: unknown[] }
+}
 import { sendJson, sameOrigin } from './http.ts'
 
 export interface WebServerService {
@@ -78,13 +85,38 @@ function splitTopEntries(text: string): string[] {
   return entries
 }
 
+/* ── !!js 表达式兼容 ──────────────────────────────────────────────────────
+ * cordis patch 允许 `!!js <expr>`（Schemastery 动态求值，如 env 里注入
+ * process.env 的 API key）。裸 js-yaml 遇到未知 tag 抛 "unknown tag"，
+ * 会让整个 MCP 管理页 500（且 GUI 打不开无法自救）。这里注册解析 Type：
+ * 遇到 !!js 标签保留表达式原始文本（不执行、不崩溃），GUI 以静态字符串
+ * 展示/编辑；如需执行语义请直接手改 cordis.patch.yml。 */
+
+function jsExpressionType(tag: string): unknown {
+  // 遇到 !!js 标签保留表达式原文（不执行、不崩溃）；identify 恒 false 避免 dump 侧误用
+  return defineScalarTag(tag, { resolve: (v) => v, identify: () => false })
+}
+
+const patchSchema = new Schema([
+  ...CORE_SCHEMA.tags,
+  jsExpressionType('tag:yaml.org,2002:js'),
+  jsExpressionType('tag:yaml.org,2002:js/function'),
+  jsExpressionType('tag:yaml.org,2002:js/regexp'),
+  jsExpressionType('tag:yaml.org,2002:js/undefined'),
+])
+
+/** 解析 patch 文本：容忍 !!js 标签（保留原始文本），其余与默认 schema 一致。 */
+function parsePatchYaml(text: string): unknown {
+  return yamlLoad(text, { schema: patchSchema as never })
+}
+
 /** 只读解析：从原始文本提取 MCP client 实例与 disabled id（不重写文件）。 */
 function parseEntries(text: string): { rows: Array<{ id: string; config?: Record<string, unknown> }>; disabled: Set<string> } {
   const rows: Array<{ id: string; config?: Record<string, unknown> }> = []
   const disabled = new Set<string>()
   for (const entry of splitTopEntries(text)) {
     if (/^\s*-\s+insert:/.test(entry)) {
-      const parsed = yamlLoad(entry) as unknown
+      const parsed = parsePatchYaml(entry) as unknown
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
           const insert = (item as { insert?: unknown }).insert
