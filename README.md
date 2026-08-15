@@ -1,5 +1,7 @@
 # dsh-mcpmanager
 
+> 🌐 **中文 | [English](README.en.md)**
+
 DSH MCP 管理器——以图形化方式查看和管理 DHS 的 MCP server 配置：列表、表单化增删改、启用/禁用、LLM 验证。配置持久化与 DHS 原生机制完全一致（cordis.patch.yml），保存后**热重载生效**。
 
 ## DHS 的 MCP 管理机制（背景）
