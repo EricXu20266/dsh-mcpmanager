@@ -93,10 +93,12 @@ interface FormState {
   command: string
   args: string
   env: string
+  url: string
+  headers: string
   cwd: string
 }
 
-const emptyForm: FormState = { id: '', serverName: '', transport: 'stdio', command: '', args: '', env: '', cwd: '' }
+const emptyForm: FormState = { id: '', serverName: '', transport: 'stdio', command: '', args: '', env: '', url: '', headers: '', cwd: '' }
 
 function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientContext; onClose: () => void }) {
   const [servers, setServers] = useState<McpServerEntry[] | null>(null)
@@ -124,7 +126,10 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
     transport: s.transport,
     command: s.command ?? '',
     args: (s.args ?? []).join(', '),
-    env: Object.entries(s.env ?? {}).map(([k, v]) => `${k}=${v}`).join(', '),
+    // env 值已脱敏（只回键名），编辑时保留已配置键提示，重新填写会整体覆盖
+    env: (s.envKeys ?? []).join(', '),
+    url: s.url ?? '',
+    headers: Object.entries(s.headers ?? {}).map(([k, v]) => `${k}=${v}`).join(', '),
     cwd: s.cwd ?? '',
   })
 
@@ -143,6 +148,15 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
         if (idx > 0) env[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim()
       }
       config.env = env
+    }
+    if (editing.transport === 'streamable-http' && editing.url.trim() !== '') config.url = editing.url.trim()
+    if (editing.headers.trim() !== '') {
+      const headers: Record<string, string> = {}
+      for (const pair of editing.headers.split(',')) {
+        const idx = pair.indexOf('=')
+        if (idx > 0) headers[pair.slice(0, idx).trim()] = pair.slice(idx + 1).trim()
+      }
+      config.headers = headers
     }
     if (editing.cwd.trim() !== '') config.cwd = editing.cwd.trim()
     fetch('/dsh-mcpmanager/upsert', {
@@ -243,6 +257,8 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
         ),
         field('command', t('fieldCommand')),
         field('args', t('fieldArgs')),
+        editing.transport === 'streamable-http' && field('url', t('fieldUrl')),
+        editing.transport === 'streamable-http' && field('headers', t('fieldHeaders')),
         field('env', t('fieldEnv')),
         field('cwd', t('fieldCwd')),
         h('div', { style: { marginTop: 12, display: 'flex', gap: 8 } },
@@ -266,7 +282,8 @@ function McpPanel({ t, ctx, onClose }: { t: Translate; ctx: DiscoveryClientConte
         (s.command !== undefined || (s.args ?? []).length > 0) && h('div', { style: { fontSize: 11, color: '#57606a', marginTop: 3, fontFamily: 'monospace', opacity: s.enabled ? 1 : 0.5 } },
           [s.command, ...(s.args ?? [])].filter(Boolean).join(' '),
         ),
-        s.env !== undefined && h('div', { style: metaStyle }, `env: ${Object.keys(s.env).join(', ')}`),
+        s.url !== undefined && h('div', { style: metaStyle }, `url: ${s.url}`),
+        (s.envKeys ?? []).length > 0 && h('div', { style: metaStyle }, `env: ${s.envKeys!.join(', ')}`),
       )),
     ),
   )

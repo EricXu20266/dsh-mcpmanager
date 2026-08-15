@@ -4,7 +4,10 @@
  *  - POST /dsh-mcpmanager/upsert — add or update one mcp-client instance (npx → bundled node auto-resolve)
  *  - POST /dsh-mcpmanager/delete — remove one mcp-client instance by id
  *  - POST /dsh-mcpmanager/toggle — enable/disable an instance (cordis patch `disabled: true` row)
- * Writes preserve every non-MCP insert row (other patch entries untouched).
+ *
+ * 写操作采用「文本级保形」：按顶层 YAML 条目块增删改，保留注释、!!js 表达式
+ * 及其它所有非 MCP 条目（id 定向覆写、inject、isolate 等）——不做整文件重 dump，
+ * 避免 js-yaml 丢注释 / 拒绝 !!js / 清空用户 patch。
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
@@ -34,9 +37,10 @@ export interface McpServerEntry {
   transport: string
   command?: string
   args?: string[]
-  env?: Record<string, string>
+  envKeys?: string[]
+  url?: string
+  headers?: Record<string, string>
   cwd?: string
-  /** 是否启用（cordis patch disabled 条目缺失 = 启用） */
   enabled: boolean
 }
 
@@ -48,74 +52,108 @@ function resolvePatchPath(): string {
   return join(home, 'profiles', 'web', 'cordis.patch.yml')
 }
 
-interface InsertRow {
-  id?: string
-  name?: string
-  config?: Record<string, unknown>
-}
-
-interface PatchFile {
-  inserts: InsertRow[]
-  disabledIds: Set<string>
-}
-
-function readPatch(): PatchFile {
-  const patch: PatchFile = { inserts: [], disabledIds: new Set() }
+function readPatchText(): string {
   const path = resolvePatchPath()
-  if (!existsSync(path)) return patch
+  if (!existsSync(path)) return ''
   try {
-    const parsed = yamlLoad(readFileSync(path, 'utf8')) as unknown
-    if (!Array.isArray(parsed)) return patch
-    for (const item of parsed) {
-      const row = item as Record<string, unknown>
-      const insert = row.insert
-      if (Array.isArray(insert)) {
-        patch.inserts.push(...(insert as InsertRow[]))
-        continue
-      }
-      if (typeof row.id === 'string' && row.disabled === true) {
-        patch.disabledIds.add(row.id)
-      }
-    }
+    return readFileSync(path, 'utf8')
   } catch {
-    // 解析失败返回空，保持幂等
+    return ''
   }
-  return patch
 }
 
-function writePatch(patch: PatchFile): void {
-  const path = resolvePatchPath()
-  mkdirSync(join(path, '..'), { recursive: true })
-  const doc: unknown[] = []
-  if (patch.inserts.length > 0) doc.push({ insert: patch.inserts })
-  for (const id of [...patch.disabledIds].sort()) {
-    doc.push({ id, disabled: true })
+/** 按顶层 `- ` 条目分割 YAML 文本（保留条目内空行），保形基础。 */
+function splitTopEntries(text: string): string[] {
+  const lines = text.split('\n')
+  const entries: string[] = []
+  let current: string[] = []
+  for (const line of lines) {
+    if (/^-\s+/.test(line) && current.length > 0 && current[current.length - 1].trim() !== '') {
+      entries.push(current.join('\n'))
+      current = []
+    }
+    current.push(line)
   }
-  writeFileSync(path, yamlDump(doc, { lineWidth: -1 }))
+  if (current.length > 0) entries.push(current.join('\n'))
+  return entries
 }
 
-function toEntry(row: InsertRow, patch: PatchFile): McpServerEntry | null {
-  if (row.name !== MCP_CLIENT || row.id === undefined) return null
+/** 只读解析：从原始文本提取 MCP client 实例与 disabled id（不重写文件）。 */
+function parseEntries(text: string): { rows: Array<{ id: string; config?: Record<string, unknown> }>; disabled: Set<string> } {
+  const rows: Array<{ id: string; config?: Record<string, unknown> }> = []
+  const disabled = new Set<string>()
+  for (const entry of splitTopEntries(text)) {
+    if (/^\s*-\s+insert:/.test(entry)) {
+      const parsed = yamlLoad(entry) as unknown
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const insert = (item as { insert?: unknown }).insert
+          if (Array.isArray(insert)) {
+            for (const row of insert as Array<{ id?: string; name?: string; config?: Record<string, unknown> }>) {
+              if (row.id !== undefined && row.name === MCP_CLIENT) {
+                rows.push({ id: row.id, config: row.config })
+              }
+            }
+          }
+        }
+      }
+    } else if (/disabled:\s*true/.test(entry)) {
+      const m = /^\s*-\s+id:\s*['"]?([^'"]+)/.exec(entry)
+      if (m !== null) disabled.add(m[1].trim())
+    }
+  }
+  return { rows, disabled }
+}
+
+function toEntry(row: { id: string; config?: Record<string, unknown> }, disabled: Set<string>): McpServerEntry {
   const config = (row.config ?? {}) as Record<string, unknown>
+  const env = typeof config.env === 'object' && config.env !== null ? config.env as Record<string, string> : undefined
   return {
     id: row.id,
     serverName: typeof config.serverName === 'string' ? config.serverName : row.id,
     transport: typeof config.transport === 'string' ? config.transport : 'stdio',
     command: typeof config.command === 'string' ? config.command : undefined,
     args: Array.isArray(config.args) ? config.args.map(String) : undefined,
-    env: typeof config.env === 'object' && config.env !== null ? config.env as Record<string, string> : undefined,
+    // 脱敏：只回传 env 键名，不泄露值（API key / token）
+    envKeys: env !== undefined ? Object.keys(env) : undefined,
+    url: typeof config.url === 'string' ? config.url : undefined,
+    headers: typeof config.headers === 'object' && config.headers !== null ? config.headers as Record<string, string> : undefined,
     cwd: typeof config.cwd === 'string' ? config.cwd : undefined,
-    enabled: !patch.disabledIds.has(row.id),
+    enabled: !disabled.has(row.id),
   }
 }
 
-function readBody(request: IncomingMessage): Promise<string> {
+function readBody(request: IncomingMessage, maxBytes = 1024 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    request.on('data', (c: Buffer) => chunks.push(c))
+    let total = 0
+    request.on('data', (c: Buffer) => {
+      total += c.length
+      if (total > maxBytes) {
+        reject(new Error('request body too large'))
+        request.destroy()
+        return
+      }
+      chunks.push(c)
+    })
     request.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
     request.on('error', reject)
   })
+}
+
+/** 渲染一个 mcp-client insert 条目块（文本级，缩进与 cordis patch 格式一致）。 */
+function renderInsertBlock(id: string, config: Record<string, unknown>): string {
+  const configText = yamlDump(config, { lineWidth: -1, indent: 2 })
+    .split('\n')
+    .map((line) => (line.trim() === '' ? line : `        ${line}`))
+    .join('\n')
+  return [
+    '- insert:',
+    `    - id: ${id}`,
+    `      name: '${MCP_CLIENT}'`,
+    '      config:',
+    configText,
+  ].join('\n')
 }
 
 /* ── npx → bundled node（保证打包版稳定性：host 用捆绑 node 运行，系统 PATH 无 npx）── */
@@ -178,9 +216,10 @@ export function mountMcpManagerRoutes(host: McpManagerHost): () => void {
       path: '/dsh-mcpmanager/list',
       handler: async (_request, response) => {
         try {
-          const patch = readPatch()
-          const entries = patch.inserts.map((r) => toEntry(r, patch)).filter((e): e is McpServerEntry => e !== null)
-          sendJson(response, 200, { servers: entries, patchPath: resolvePatchPath() })
+          const text = readPatchText()
+          const { rows, disabled } = parseEntries(text)
+          const servers = rows.map((r) => toEntry(r, disabled))
+          sendJson(response, 200, { servers, patchPath: resolvePatchPath() })
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
         }
@@ -202,7 +241,6 @@ export function mountMcpManagerRoutes(host: McpManagerHost): () => void {
           }
           const config = { ...body.config }
           let resolvedNpx = false
-          // npx → 内置 node 直调（打包版稳定性）
           if (typeof config.command === 'string' && config.command === 'npx' && Array.isArray(config.args)) {
             const resolved = resolveNpxToBundledNode(config.args.map(String))
             if (resolved !== null) {
@@ -211,14 +249,14 @@ export function mountMcpManagerRoutes(host: McpManagerHost): () => void {
               resolvedNpx = true
             }
           }
-          const patch = readPatch()
-          const existing = patch.inserts.find((r) => r.id === body.id && r.name === MCP_CLIENT)
-          if (existing !== undefined) {
-            existing.config = config
-          } else {
-            patch.inserts.push({ id: body.id, name: MCP_CLIENT, config })
-          }
-          writePatch(patch)
+          // 文本级保形：替换已存在的 insert 块，否则追加
+          const entries = splitTopEntries(readPatchText())
+          const block = renderInsertBlock(body.id, config)
+          const idx = entries.findIndex((e) => e.includes(`id: ${body.id}`) && e.includes(MCP_CLIENT))
+          if (idx >= 0) entries[idx] = block
+          else entries.push(block)
+          mkdirSync(join(resolvePatchPath(), '..'), { recursive: true })
+          writeFileSync(resolvePatchPath(), entries.join('\n'), 'utf8')
           sendJson(response, 200, { ok: true, id: body.id, restartRequired: true, resolvedNpx })
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
@@ -239,10 +277,9 @@ export function mountMcpManagerRoutes(host: McpManagerHost): () => void {
             sendJson(response, 400, { error: 'id is required' })
             return
           }
-          const patch = readPatch()
-          patch.inserts = patch.inserts.filter((r) => !(r.id === body.id && r.name === MCP_CLIENT))
-          patch.disabledIds.delete(body.id)
-          writePatch(patch)
+          const entries = splitTopEntries(readPatchText()).filter((e) =>
+            !(e.includes(`id: ${body.id}`) && (e.includes(MCP_CLIENT) || e.includes('disabled: true'))))
+          writeFileSync(resolvePatchPath(), entries.join('\n'), 'utf8')
           sendJson(response, 200, { ok: true, id: body.id, restartRequired: true })
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
@@ -263,15 +300,19 @@ export function mountMcpManagerRoutes(host: McpManagerHost): () => void {
             sendJson(response, 400, { error: 'id and enabled are required' })
             return
           }
-          const patch = readPatch()
-          const exists = patch.inserts.some((r) => r.id === body.id && r.name === MCP_CLIENT)
-          if (!exists) {
+          const entries = splitTopEntries(readPatchText())
+          const mcpIdx = entries.findIndex((e) => e.includes(`id: ${body.id}`) && e.includes(MCP_CLIENT))
+          if (mcpIdx === -1) {
             sendJson(response, 404, { error: `mcp server "${body.id}" not found` })
             return
           }
-          if (body.enabled) patch.disabledIds.delete(body.id)
-          else patch.disabledIds.add(body.id)
-          writePatch(patch)
+          const disabledIdx = entries.findIndex((e) => e.includes(`id: ${body.id}`) && e.includes('disabled: true'))
+          if (body.enabled) {
+            if (disabledIdx >= 0) entries.splice(disabledIdx, 1)
+          } else if (disabledIdx === -1) {
+            entries.push(`- id: ${body.id}\n  disabled: true`)
+          }
+          writeFileSync(resolvePatchPath(), entries.join('\n'), 'utf8')
           sendJson(response, 200, { ok: true, id: body.id, enabled: body.enabled, restartRequired: true })
         } catch (error) {
           sendJson(response, 500, { error: error instanceof Error ? error.message : String(error) })
