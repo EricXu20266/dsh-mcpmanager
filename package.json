@@ -2,6 +2,7 @@
   "name": "dsh-mcpmanager",
   "description": "DSH MCP manager — inspect, add, edit and remove MCP server configs in the profile patch; restarts are delegated to the host agent. · DSH MCP 管理器：查看/新增/编辑/删除 profile 中的 MCP server 配置，重启生效交由 agent 处理。",
   "version": "0.1.0",
+  "repository": "git+https://github.com/EricXu20266/dsh-mcpmanager.git",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
